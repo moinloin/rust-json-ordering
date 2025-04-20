@@ -92,7 +92,7 @@ docker compose run --rm rust-app
 print_header "Database Query Results"
 
 print_step "Querying PostgreSQL database directly:"
-docker compose exec postgres psql -U testuser -d testdb -c "SELECT id, data_jsonb, raw_text FROM json_test;"
+docker compose exec postgres psql -U testuser -d testdb -c "SELECT id, jsonb_pretty(data_jsonb) AS formatted_jsonb, raw_text FROM json_test;"
 
 print_header "Test Complete"
 
