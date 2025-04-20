@@ -10,7 +10,6 @@ async fn create_pool(database_url: &str) -> Result<PgPool> {
         .connect(database_url)
         .await?;
 
-    // Clear existing data for clean testing
     sqlx::query("DROP TABLE IF EXISTS json_test")
         .execute(&pool)
         .await?;
@@ -34,7 +33,6 @@ async fn ensure_table_exists(pool: &PgPool) -> Result<()> {
 }
 
 async fn insert_json(pool: &PgPool, json_data: &str) -> Result<i32> {
-    // Parse the original JSON for the JSONB column
     let parsed_value: Value = serde_json::from_str(json_data)?;
 
     let row = sqlx::query(
@@ -44,8 +42,8 @@ async fn insert_json(pool: &PgPool, json_data: &str) -> Result<i32> {
         RETURNING id
         "#,
     )
-    .bind(&parsed_value)  // For JSONB column
-    .bind(json_data)      // Store raw text exactly as-is
+    .bind(&parsed_value)
+    .bind(json_data)
     .fetch_one(pool)
     .await?;
 
@@ -72,7 +70,6 @@ fn read_json_file(file_path: &str) -> Result<String> {
     let json_content = fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read JSON file: {}", file_path))?;
 
-    // Validate JSON to catch errors early
     serde_json::from_str::<Value>(&json_content)
         .with_context(|| format!("Invalid JSON in file: {}", file_path))?;
 
@@ -81,18 +78,14 @@ fn read_json_file(file_path: &str) -> Result<String> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Get database connection string from environment or use default
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://testuser:testpassword@postgres:5432/testdb".to_string());
 
     println!("Connecting to database at: {}", database_url);
 
-    // Create connection pool and ensure table exists
     let pool = create_pool(&database_url).await?;
     ensure_table_exists(&pool).await?;
 
-    // Define the file path - first check if it exists in the current directory,
-    // then try a few common locations
     let possible_paths = vec![
         "json.txt",
         "/app/json.txt",
@@ -107,7 +100,6 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Get the JSON data from file
     let json_data = match json_file_path {
         Some(path) => {
             println!("Reading JSON from file: {}", path);
@@ -116,7 +108,6 @@ async fn main() -> Result<()> {
         None => {
             println!("Warning: json.txt file not found in expected locations.");
             println!("Using fallback hardcoded JSON sample.");
-            // Fallback to hardcoded JSON (same as before)
             String::from(r#"{
                 "movies": [
                     {
@@ -134,14 +125,11 @@ async fn main() -> Result<()> {
         }
     };
 
-    // Insert JSON
     let id = insert_json(&pool, &json_data).await?;
     println!("Inserted JSON with ID: {}", id);
 
-    // Retrieve all versions
     let (jsonb_data, raw_text) = get_json_by_id(&pool, id).await?;
 
-    // Display results
     println!("\n--- Original JSON ---\n{}", json_data);
     println!("\n--- Retrieved JSONB (order not preserved) ---\n{}", serde_json::to_string_pretty(&jsonb_data)?);
     println!("\n--- Retrieved Raw Text (exactly as inserted) ---\n{}", raw_text);
