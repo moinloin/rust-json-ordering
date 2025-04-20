@@ -1,4 +1,4 @@
-# PostgreSQL JSON Order Preservation Demo
+# PostgreSQL JSON Order Preservation PoC
 
 A demonstration of JSON field order preservation issues in PostgreSQL and a solution using `LinkedHashMap` in Rust.
 
