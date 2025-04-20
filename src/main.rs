@@ -1,6 +1,8 @@
-use anyhow::Result;
+use anyhow::{Result, Context};
 use serde_json::Value;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
+use std::fs;
+use std::path::Path;
 
 async fn create_pool(database_url: &str) -> Result<PgPool> {
     let pool = PgPoolOptions::new()
@@ -66,6 +68,17 @@ async fn get_json_by_id(pool: &PgPool, id: i32) -> Result<(Value, String)> {
     Ok((data, raw_text))
 }
 
+fn read_json_file(file_path: &str) -> Result<String> {
+    let json_content = fs::read_to_string(file_path)
+        .with_context(|| format!("Failed to read JSON file: {}", file_path))?;
+
+    // Validate JSON to catch errors early
+    serde_json::from_str::<Value>(&json_content)
+        .with_context(|| format!("Invalid JSON in file: {}", file_path))?;
+
+    Ok(json_content)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Get database connection string from environment or use default
@@ -78,24 +91,51 @@ async fn main() -> Result<()> {
     let pool = create_pool(&database_url).await?;
     ensure_table_exists(&pool).await?;
 
-    // Test JSON with specific field order
-    let json_data = r#"{
-        "movies": [
-            {
-                "title": "Inception",
-                "genre": "Sci-Fi",
-                "locations": ["Cinema City Berlin", "Movieplex Hamburg"]
-            },
-            {
-                "title": "The Grand Budapest Hotel",
-                "genre": "Comedy",
-                "locations": ["Filmtheater München", "Kino Köln"]
-            }
-        ]
-    }"#;
+    // Define the file path - first check if it exists in the current directory,
+    // then try a few common locations
+    let possible_paths = vec![
+        "json.txt",
+        "/app/json.txt",
+        "../json.txt",
+    ];
+
+    let mut json_file_path = None;
+    for path in possible_paths {
+        if Path::new(path).exists() {
+            json_file_path = Some(path);
+            break;
+        }
+    }
+
+    // Get the JSON data from file
+    let json_data = match json_file_path {
+        Some(path) => {
+            println!("Reading JSON from file: {}", path);
+            read_json_file(path)?
+        },
+        None => {
+            println!("Warning: json.txt file not found in expected locations.");
+            println!("Using fallback hardcoded JSON sample.");
+            // Fallback to hardcoded JSON (same as before)
+            String::from(r#"{
+                "movies": [
+                    {
+                        "title": "Inception",
+                        "genre": "Sci-Fi",
+                        "locations": ["Cinema City Berlin", "Movieplex Hamburg"]
+                    },
+                    {
+                        "title": "The Grand Budapest Hotel",
+                        "genre": "Comedy",
+                        "locations": ["Filmtheater München", "Kino Köln"]
+                    }
+                ]
+            }"#)
+        }
+    };
 
     // Insert JSON
-    let id = insert_json(&pool, json_data).await?;
+    let id = insert_json(&pool, &json_data).await?;
     println!("Inserted JSON with ID: {}", id);
 
     // Retrieve all versions

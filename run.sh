@@ -1,5 +1,31 @@
 #!/bin/bash
 
+# Check if json.txt exists
+if [ ! -f "json.txt" ]; then
+    echo "Warning: json.txt not found in current directory. Creating a sample file..."
+    cat > json.txt << EOF
+{
+    "movies": [
+        {
+            "title": "Inception",
+            "director": "Christopher Nolan",
+            "year": 2010,
+            "genre": "Sci-Fi",
+            "locations": ["Cinema City Berlin", "Movieplex Hamburg"]
+        },
+        {
+            "title": "The Grand Budapest Hotel",
+            "director": "Wes Anderson",
+            "year": 2014,
+            "genre": "Comedy",
+            "locations": ["Filmtheater München", "Kino Köln"]
+        }
+    ]
+}
+EOF
+    echo "Created sample json.txt file"
+fi
+
 # Build and start the containers
 echo "Starting containers..."
 docker compose down -v --remove-orphans

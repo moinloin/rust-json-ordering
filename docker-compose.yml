@@ -25,6 +25,7 @@ services:
         condition: service_healthy
     volumes:
       - ./src:/app/src
+      - ./json.txt:/app/json.txt
     environment:
       DATABASE_URL: postgres://testuser:testpassword@postgres:5432/testdb
 

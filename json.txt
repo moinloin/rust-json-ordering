@@ -1,0 +1,25 @@
+{
+    "movies": [
+        {
+            "title": "Inception",
+            "director": "Christopher Nolan",
+            "year": 2010,
+            "genre": "Sci-Fi",
+            "locations": ["Cinema City Berlin", "Movieplex Hamburg"]
+        },
+        {
+            "title": "The Grand Budapest Hotel",
+            "director": "Wes Anderson",
+            "year": 2014,
+            "genre": "Comedy",
+            "locations": ["Filmtheater München", "Kino Köln"]
+        },
+        {
+            "title": "Parasite",
+            "director": "Bong Joon-ho",
+            "year": 2019,
+            "genre": "Drama",
+            "locations": ["Seoul Cinema", "Tokyo Film Center"]
+        }
+    ]
+}

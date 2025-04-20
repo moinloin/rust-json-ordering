@@ -17,5 +17,8 @@ RUN rm -f src/main.rs
 # Copy the actual source code
 COPY src ./src
 
+# Copy the JSON file
+COPY json.txt ./
+
 # Run the application
 CMD ["cargo", "run"]
