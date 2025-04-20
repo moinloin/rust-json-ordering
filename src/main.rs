@@ -1,15 +1,6 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
-
-// Regular Movie struct (for demonstration of the default behavior)
-#[derive(Debug, Serialize, Deserialize)]
-struct Movie {
-    title: String,
-    genre: String,
-    locations: Vec<String>,
-}
 
 async fn create_pool(database_url: &str) -> Result<PgPool> {
     let pool = PgPoolOptions::new()
@@ -30,9 +21,8 @@ async fn ensure_table_exists(pool: &PgPool) -> Result<()> {
         r#"
         CREATE TABLE IF NOT EXISTS json_test (
             id SERIAL PRIMARY KEY,
-            data JSONB NOT NULL,
-            preserved_data JSONB NOT NULL,
-            exact_text TEXT NOT NULL
+            data_jsonb JSONB NOT NULL,
+            raw_text TEXT NOT NULL
         )
         "#,
     )
@@ -41,40 +31,39 @@ async fn ensure_table_exists(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
-async fn insert_json_with_exact_text(pool: &PgPool, json_data: &str) -> Result<i32> {
-    // Parse for JSONB columns
-    let value: Value = serde_json::from_str(json_data)?;
+async fn insert_json(pool: &PgPool, json_data: &str) -> Result<i32> {
+    // Parse the original JSON for the JSONB column
+    let parsed_value: Value = serde_json::from_str(json_data)?;
 
     let row = sqlx::query(
         r#"
-        INSERT INTO json_test (data, preserved_data, exact_text)
-        VALUES ($1, $1, $2)
+        INSERT INTO json_test (data_jsonb, raw_text)
+        VALUES ($1, $2)
         RETURNING id
         "#,
     )
-    .bind(&value)  // For JSONB columns
-    .bind(json_data)  // Store exact text in TEXT column
+    .bind(&parsed_value)  // For JSONB column
+    .bind(json_data)      // Store raw text exactly as-is
     .fetch_one(pool)
     .await?;
 
     Ok(row.get("id"))
 }
 
-async fn get_json_by_id(pool: &PgPool, id: i32) -> Result<(Value, Value, String)> {
+async fn get_json_by_id(pool: &PgPool, id: i32) -> Result<(Value, String)> {
     let row = sqlx::query(
         r#"
-        SELECT data, preserved_data, exact_text FROM json_test WHERE id = $1
+        SELECT data_jsonb, raw_text FROM json_test WHERE id = $1
         "#,
     )
     .bind(id)
     .fetch_one(pool)
     .await?;
 
-    let data: Value = row.try_get("data")?;
-    let preserved: Value = row.try_get("preserved_data")?;
-    let exact_text: String = row.try_get("exact_text")?;
+    let data: Value = row.try_get("data_jsonb")?;
+    let raw_text: String = row.try_get("raw_text")?;
 
-    Ok((data, preserved, exact_text))
+    Ok((data, raw_text))
 }
 
 #[tokio::main]
@@ -105,33 +94,17 @@ async fn main() -> Result<()> {
         ]
     }"#;
 
-    // Insert JSON with exact text preservation
-    let id = insert_json_with_exact_text(&pool, json_data).await?;
+    // Insert JSON
+    let id = insert_json(&pool, json_data).await?;
     println!("Inserted JSON with ID: {}", id);
 
     // Retrieve all versions
-    let (jsonb_data, preserved_jsonb, exact_text) = get_json_by_id(&pool, id).await?;
+    let (jsonb_data, raw_text) = get_json_by_id(&pool, id).await?;
 
     // Display results
     println!("\n--- Original JSON ---\n{}", json_data);
     println!("\n--- Retrieved JSONB (order not preserved) ---\n{}", serde_json::to_string_pretty(&jsonb_data)?);
-    println!("\n--- Retrieved Exact Text (original format preserved) ---\n{}", exact_text);
-
-    // Example of how to use the exact text in your application
-    println!("\n--- Parsing the exact text for use ---");
-    let exact_parsed: Value = serde_json::from_str(&exact_text)?;
-
-    // Accessing fields in their original order (when using the exact_text)
-    if let Some(movies) = exact_parsed.get("movies").and_then(|m| m.as_array()) {
-        if let Some(movie) = movies.get(0) {
-            if let Some(title) = movie.get("title") {
-                println!("First movie title: {}", title);
-            }
-            if let Some(genre) = movie.get("genre") {
-                println!("First movie genre: {}", genre);
-            }
-        }
-    }
+    println!("\n--- Retrieved Raw Text (exactly as inserted) ---\n{}", raw_text);
 
     Ok(())
 }

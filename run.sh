@@ -15,7 +15,7 @@ docker compose run --rm rust-app
 
 # Query the database directly to see how data is stored
 echo "Querying the database directly:"
-docker compose exec postgres psql -U testuser -d testdb -c "SELECT id, data, preserved_data FROM json_test;"
+docker compose exec postgres psql -U testuser -d testdb -c "SELECT id, data_jsonb, raw_text FROM json_test;"
 
 # Stop the containers
 echo "Stopping containers..."
