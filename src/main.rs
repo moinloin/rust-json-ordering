@@ -1,5 +1,4 @@
 use anyhow::Result;
-use linked_hash_map::LinkedHashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
@@ -12,49 +11,6 @@ struct Movie {
     locations: Vec<String>,
 }
 
-// Order-preserving Movie struct using a manual implementation
-#[derive(Debug)]
-struct MovieOrdered {
-    fields: LinkedHashMap<String, Value>,
-}
-
-// Manual Serialize implementation for MovieOrdered
-impl Serialize for MovieOrdered {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(self.fields.len()))?;
-        for (k, v) in &self.fields {
-            map.serialize_entry(k, v)?;
-        }
-        map.end()
-    }
-}
-
-impl MovieOrdered {
-    fn new() -> Self {
-        Self {
-            fields: LinkedHashMap::new(),
-        }
-    }
-
-    fn add_field(&mut self, key: &str, value: Value) {
-        self.fields.insert(key.to_string(), value);
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Movies {
-    movies: Vec<Movie>,
-}
-
-#[derive(Debug, Serialize)]
-struct MoviesOrdered {
-    movies: Vec<MovieOrdered>,
-}
-
 async fn create_pool(database_url: &str) -> Result<PgPool> {
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -62,7 +18,7 @@ async fn create_pool(database_url: &str) -> Result<PgPool> {
         .await?;
 
     // Clear existing data for clean testing
-    sqlx::query("TRUNCATE TABLE json_test RESTART IDENTITY")
+    sqlx::query("DROP TABLE IF EXISTS json_test")
         .execute(&pool)
         .await?;
 
@@ -75,7 +31,8 @@ async fn ensure_table_exists(pool: &PgPool) -> Result<()> {
         CREATE TABLE IF NOT EXISTS json_test (
             id SERIAL PRIMARY KEY,
             data JSONB NOT NULL,
-            preserved_data JSONB NOT NULL
+            preserved_data JSONB NOT NULL,
+            exact_text TEXT NOT NULL
         )
         "#,
     )
@@ -84,80 +41,29 @@ async fn ensure_table_exists(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
-async fn insert_regular_json(pool: &PgPool, json_data: &str) -> Result<i32> {
+async fn insert_json_with_exact_text(pool: &PgPool, json_data: &str) -> Result<i32> {
+    // Parse for JSONB columns
     let value: Value = serde_json::from_str(json_data)?;
 
     let row = sqlx::query(
         r#"
-        INSERT INTO json_test (data, preserved_data)
-        VALUES ($1, $1)
+        INSERT INTO json_test (data, preserved_data, exact_text)
+        VALUES ($1, $1, $2)
         RETURNING id
         "#,
     )
-    .bind(&value)
-    .bind(&value)  // Fixed to bind both parameters
+    .bind(&value)  // For JSONB columns
+    .bind(json_data)  // Store exact text in TEXT column
     .fetch_one(pool)
     .await?;
 
     Ok(row.get("id"))
 }
 
-async fn insert_ordered_json(pool: &PgPool, json_str: &str) -> Result<i32> {
-    // Parse the original JSON
-    let original_value: Value = serde_json::from_str(json_str)?;
-
-    // First, insert the regular JSON to demonstrate order loss
-    let regular_json = original_value.clone();
-
-    // Now create our ordered version
-    let json_obj = original_value.as_object().unwrap();
-    let movies_array = json_obj.get("movies").unwrap().as_array().unwrap();
-
-    let mut ordered_movies = MoviesOrdered { movies: vec![] };
-
-    for movie_value in movies_array {
-        let movie_obj = movie_value.as_object().unwrap();
-
-        let mut ordered_movie = MovieOrdered::new();
-
-        // Add fields in the specific order we want to preserve
-        if let Some(title) = movie_obj.get("title") {
-            ordered_movie.add_field("title", title.clone());
-        }
-
-        if let Some(genre) = movie_obj.get("genre") {
-            ordered_movie.add_field("genre", genre.clone());
-        }
-
-        if let Some(locations) = movie_obj.get("locations") {
-            ordered_movie.add_field("locations", locations.clone());
-        }
-
-        ordered_movies.movies.push(ordered_movie);
-    }
-
-    // Convert our ordered structure back to a JSON value
-    let preserved_json = serde_json::to_value(&ordered_movies)?;
-
+async fn get_json_by_id(pool: &PgPool, id: i32) -> Result<(Value, Value, String)> {
     let row = sqlx::query(
         r#"
-        INSERT INTO json_test (data, preserved_data)
-        VALUES ($1, $2)
-        RETURNING id
-        "#,
-    )
-    .bind(&regular_json)
-    .bind(&preserved_json)
-    .fetch_one(pool)
-    .await?;
-
-    Ok(row.get("id"))
-}
-
-async fn get_json_by_id(pool: &PgPool, id: i32) -> Result<(Value, Value)> {
-    let row = sqlx::query(
-        r#"
-        SELECT data, preserved_data FROM json_test WHERE id = $1
+        SELECT data, preserved_data, exact_text FROM json_test WHERE id = $1
         "#,
     )
     .bind(id)
@@ -166,8 +72,9 @@ async fn get_json_by_id(pool: &PgPool, id: i32) -> Result<(Value, Value)> {
 
     let data: Value = row.try_get("data")?;
     let preserved: Value = row.try_get("preserved_data")?;
+    let exact_text: String = row.try_get("exact_text")?;
 
-    Ok((data, preserved))
+    Ok((data, preserved, exact_text))
 }
 
 #[tokio::main]
@@ -198,22 +105,33 @@ async fn main() -> Result<()> {
         ]
     }"#;
 
-    // Demonstrate regular JSON insertion (order not preserved)
-    let regular_id = insert_regular_json(&pool, json_data).await?;
-    println!("Inserted regular JSON with ID: {}", regular_id);
+    // Insert JSON with exact text preservation
+    let id = insert_json_with_exact_text(&pool, json_data).await?;
+    println!("Inserted JSON with ID: {}", id);
 
-    // Demonstrate ordered JSON insertion (order preserved)
-    let ordered_id = insert_ordered_json(&pool, json_data).await?;
-    println!("Inserted ordered JSON with ID: {}", ordered_id);
-
-    // Retrieve both versions
-    let (regular_json, _) = get_json_by_id(&pool, regular_id).await?;
-    let (_, preserved_json) = get_json_by_id(&pool, ordered_id).await?;
+    // Retrieve all versions
+    let (jsonb_data, preserved_jsonb, exact_text) = get_json_by_id(&pool, id).await?;
 
     // Display results
     println!("\n--- Original JSON ---\n{}", json_data);
-    println!("\n--- Retrieved Regular JSON (order not preserved) ---\n{}", serde_json::to_string_pretty(&regular_json)?);
-    println!("\n--- Retrieved Ordered JSON (order preserved) ---\n{}", serde_json::to_string_pretty(&preserved_json)?);
+    println!("\n--- Retrieved JSONB (order not preserved) ---\n{}", serde_json::to_string_pretty(&jsonb_data)?);
+    println!("\n--- Retrieved Exact Text (original format preserved) ---\n{}", exact_text);
+
+    // Example of how to use the exact text in your application
+    println!("\n--- Parsing the exact text for use ---");
+    let exact_parsed: Value = serde_json::from_str(&exact_text)?;
+
+    // Accessing fields in their original order (when using the exact_text)
+    if let Some(movies) = exact_parsed.get("movies").and_then(|m| m.as_array()) {
+        if let Some(movie) = movies.get(0) {
+            if let Some(title) = movie.get("title") {
+                println!("First movie title: {}", title);
+            }
+            if let Some(genre) = movie.get("genre") {
+                println!("First movie genre: {}", genre);
+            }
+        }
+    }
 
     Ok(())
 }
