@@ -31,7 +31,7 @@ print_success() {
 print_header "JSON Order Preservation Test"
 
 if [ ! -f "json.txt" ]; then
-    print_warning "json.txt not found in current directory. Creating a sample file..."
+    print_warning "json.txt not found in current directory, creating a sample file..."
     cat > json.txt << EOF
 {
     "movies": [
